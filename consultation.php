@@ -2,7 +2,104 @@
 session_start();
 include_once 'includes/auth.php';
 requireLogin();
+
+// === TAMBAHKAN CODE INI DI AWAL FILE ===
+include_once 'includes/config.php';
+
+// Jika form dikirim via POST
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $database = new Database();
+    $db = $database->getConnection();
+    
+    $data = json_decode(file_get_contents('php://input'), true);
+    $user_id = $_SESSION['user_id'];
+    
+    try {
+        // DEBUG: Log data yang diterima
+        error_log("=== CONSULTATION FORM SUBMITTED ===");
+        error_log("User ID: " . $user_id);
+        error_log("Symptoms: " . print_r($data['symptoms'], true));
+        error_log("Details: " . print_r($data['details'], true));
+        error_log("Patient Info: " . print_r($data['patientInfo'], true));
+
+        // Initialize Forward Chaining Engine
+        $fc = new ForwardChaining($db);
+        
+        // Process consultation - PERBAIKI PARAMETER INI
+        $result = $fc->processConsultation(
+            $data['symptoms'] ?? [],
+            [
+                'details' => $data['details'] ?? [],
+                'patientInfo' => $data['patientInfo'] ?? [],
+                'symptom_duration' => $data['patientInfo']['symptom_duration'] ?? '',
+                'temperature' => $data['patientInfo']['temperature'] ?? '',
+                'allergies' => $data['patientInfo']['allergies'] ?? '',
+                'current_meds' => $data['patientInfo']['current_meds'] ?? '',
+                'medical_history' => $data['patientInfo']['medical_history'] ?? ''
+            ]
+        );
+        
+        // DEBUG: Log result
+        error_log("Forward Chaining Result: " . print_r($result, true));
+
+        // Save consultation
+        $query = "INSERT INTO consultations (user_id, main_symptom, additional_symptoms, answers, recommendation) 
+                  VALUES (?, ?, ?, ?, ?)";
+        $stmt = $db->prepare($query);
+        
+        $main_symptom = $data['symptoms'][0] ?? 'Unknown';
+        $additional_symptoms = implode(', ', array_slice($data['symptoms'], 1));
+        $answers = json_encode([
+            'details' => $data['details'] ?? [],
+            'patientInfo' => $data['patientInfo'] ?? []
+        ]);
+        $recommendation = json_encode($result['recommendations']);
+        
+        $stmt->execute([
+            $user_id, 
+            $main_symptom, 
+            $additional_symptoms, 
+            $answers, 
+            $recommendation
+        ]);
+        
+        $consultation_id = $db->lastInsertId();
+        
+        // Save consultation log
+        $query = "INSERT INTO consultation_logs (user_id, symptoms_data, applied_rules, final_recommendation) 
+                  VALUES (?, ?, ?, ?)";
+        $stmt = $db->prepare($query);
+        $stmt->execute([
+            $user_id,
+            json_encode($data['symptoms']),
+            json_encode($result['applied_rules']),
+            $recommendation
+        ]);
+        
+        // Kirim response JSON
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => true,
+            'consultation_id' => $consultation_id,
+            'recommendations' => $result['recommendations'],
+            'applied_rules' => $result['applied_rules']
+        ]);
+        exit;
+        
+    } catch(Exception $e) {
+        error_log("Error in consultation: " . $e->getMessage());
+        
+        header('Content-Type: application/json');
+        echo json_encode([
+            'success' => false,
+            'message' => 'Terjadi kesalahan: ' . $e->getMessage()
+        ]);
+        exit;
+    }
+}
+// === END OF PHP PROCESSING CODE ===
 ?>
+
 <!DOCTYPE html>
 <html lang="id">
 <head>
