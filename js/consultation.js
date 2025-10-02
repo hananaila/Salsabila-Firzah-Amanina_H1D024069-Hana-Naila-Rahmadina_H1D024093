@@ -304,8 +304,11 @@ function finishConsultation() {
         const originalText = nextButton.innerHTML;
         nextButton.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Memproses...';
         nextButton.disabled = true;
-        
+
         // Prepare data for API
+        const formData = new FormData(document.getElementById('consultationForm'));
+
+        // Collect all data
         const requestData = {
             symptoms: consultationData.symptoms,
             details: consultationData.details,
